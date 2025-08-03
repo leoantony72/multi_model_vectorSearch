@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	// "github.com/redis/go-redis/v9"
 )
@@ -89,4 +90,17 @@ func ToVector(data interface{}, dataType string) ([]float32, error) {
 		embedding[i] = float32(v)
 	}
 	return embedding, nil
+}
+
+// Converts a []float32 to []byte (little-endian)
+func Float32SliceToBytes(floats []float32) []byte {
+	b := make([]byte, 4*len(floats))
+	for i, f := range floats {
+		bits := math.Float32bits(f)
+		b[i*4] = byte(bits)
+		b[i*4+1] = byte(bits >> 8)
+		b[i*4+2] = byte(bits >> 16)
+		b[i*4+3] = byte(bits >> 24)
+	}
+	return b
 }
