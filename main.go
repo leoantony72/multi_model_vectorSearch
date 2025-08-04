@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"rediscontest/database"
 	"rediscontest/utils"
-	"strconv"
 	"strings"
 
 	"github.com/RedisGraph/redisgraph-go"
@@ -66,17 +66,11 @@ func submitHandler(c *gin.Context) {
 
 	switch searchType {
 	case "text":
-		var input Input
-		if err := c.ShouldBindJSON(&input); err != nil {
-			log.Println("Error binding JSON:", err)
-			c.JSON(400, gin.H{"error": "Invalid input"})
-			return
-		}
-
-		queryText := strings.TrimSpace(strings.ToLower(input.Text))
+		data := c.PostForm("query")
+		queryText := strings.TrimSpace(strings.ToLower(data))
 		fmt.Println("Search query:", queryText)
 
-		vec, err := utils.ToVector(input.Text, "text")
+		vec, err := utils.ToVector(data, "text")
 		if err != nil {
 			log.Printf("Embedding error: %v\n", err)
 			c.JSON(500, gin.H{"error": "Failed to generate vector embedding"})
@@ -86,7 +80,7 @@ func submitHandler(c *gin.Context) {
 
 		hashKey := "doc:text:" + utils.Sha256Sum(queryText)
 
-		exists, err := KeyExists(client, hashKey)
+		exists, err := KeyExists(gored, ctx, hashKey)
 		if err != nil {
 			log.Printf("Redis Exists error: %v\n", err)
 			c.JSON(500, gin.H{"error": "Failed to check existing key"})
@@ -108,7 +102,7 @@ func submitHandler(c *gin.Context) {
 
 		// Perform KNN search to find similar documents
 		k := 5 // number of neighbors
-		similarKeys, similarities, err := searchSimilarVectorsWithScores(gored, vec, k)
+		similarKeys, _, similarities, err := searchSimilarVectorsWithScores(gored, vec, k)
 		if err != nil {
 			log.Printf("KNN search error: %v\n", err)
 			c.JSON(500, gin.H{"error": "KNN search failed"})
@@ -116,7 +110,7 @@ func submitHandler(c *gin.Context) {
 		}
 		log.Printf("Similar keys found: %v\n", similarKeys)
 
-		// Upsert query node and edges into RedisGraph
+		// Insert query node and edges into RedisGraph
 		graph := rg.GraphNew("semantic_graph", (*rdb))
 		err = connectToGraph(&graph, hashKey, similarKeys, similarities)
 		if err != nil {
@@ -160,30 +154,47 @@ func searchHandler(c *gin.Context) {
 
 func createVectorIndex(rdb *rv.Client, dim int) error {
 	ctx := context.Background()
-	res := rdb.Do(ctx,
+	hnswArgs := []string{
+		"HNSW", "12",
+		"TYPE", "FLOAT32",
+		"DIM", fmt.Sprint(dim),
+		"DISTANCE_METRIC", "COSINE",
+		"INITIAL_CAP", "1000",
+		"M", "16",
+		"EF_CONSTRUCTION", "200",
+	}
+
+	stringArgs := []string{
 		"FT.CREATE", "idx:text:vector",
 		"ON", "HASH",
 		"PREFIX", "1", "doc:",
 		"SCHEMA",
 		"type", "TAG",
 		"content", "TEXT",
-		"embedding", "VECTOR", "HNSW", "6",
-		"DIM", fmt.Sprint(dim),
-		"DISTANCE_METRIC", "COSINE",
-		"INITIAL_CAP", "1000",
-		"M", "16",
-		"EF_CONSTRUCTION", "200",
-	)
+		"embedding", "VECTOR",
+	}
+	stringArgs = append(stringArgs, hnswArgs...)
+	iargs := make([]interface{}, len(stringArgs))
+	for i, v := range stringArgs {
+		iargs[i] = v
+	}
+
+	res := rdb.Do(ctx, iargs...)
 	if res.Err() != nil && !strings.Contains(res.Err().Error(), "Index already exists") {
 		return res.Err()
 	}
+
+	fmt.Println("Vector index created or already exists.")
 	return nil
 }
 
-func searchSimilarVectorsWithScores(rdb *rv.Client, queryVec []float32, k int) ([]string, []float64, error) {
+func searchSimilarVectorsWithScores(rdb *rv.Client, queryVec []float32, k int) ([]string, []string, []float64, error) {
 	ctx := context.Background()
+
 	vecBytes := utils.Float32SliceToBytes(queryVec)
+
 	query := fmt.Sprintf("*=>[KNN %d @embedding $query_vec AS vector_score]", k)
+
 	res, err := rdb.Do(ctx,
 		"FT.SEARCH", "idx:text:vector", query,
 		"PARAMS", "2", "query_vec", vecBytes,
@@ -192,37 +203,50 @@ func searchSimilarVectorsWithScores(rdb *rv.Client, queryVec []float32, k int) (
 		"DIALECT", "2",
 	).Result()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, fmt.Errorf("KNN search command failed: %w", err)
 	}
 
-	arr, ok := res.([]interface{})
-	if !ok || len(arr) < 2 {
-		return nil, nil, fmt.Errorf("unexpected result format: %v", res)
+	resultMap, ok := res.(map[string]interface{})
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("unexpected result format: expected map, got %T", res)
 	}
 
-	keys := []string{}
-	scores := []float64{}
-	// arr[0] is the total count
-	for i := 1; i < len(arr); i += 2 {
-		key, _ := arr[i].(string)
-		keys = append(keys, key)
-		// Next element: fields array
-		fields, _ := arr[i+1].([]interface{})
-		// Parse vector_score field
-		var score float64
-		for j := 0; j < len(fields); j += 2 {
-			fname, _ := fields[j].(string)
-			if fname == "vector_score" || fname == "VECTOR_SCORE" {
-				sval, _ := fields[j+1].(string)
-				f, err := strconv.ParseFloat(sval, 64)
-				if err == nil {
-					score = f
-				}
-			}
+	results, ok := resultMap["results"].([]interface{})
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("results field is not a slice")
+	}
+
+	// 1. Declare slices for all return values.
+	var keys []string
+	var contents []string
+	var scores []float64
+
+	for _, resultItem := range results {
+		doc, ok := resultItem.(map[string]interface{})
+		if !ok {
+			continue
 		}
-		scores = append(scores, score)
+
+		// 2. Extract the document ID.
+		if id, found := doc["id"].(string); found {
+			keys = append(keys, id)
+		}
+
+		attributes, ok := doc["extra_attributes"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		if content, found := attributes["content"].(string); found {
+			contents = append(contents, content)
+		}
+		if score, found := attributes["vector_score"].(float64); found {
+			scores = append(scores, score)
+		}
 	}
-	return keys, scores, nil
+
+	// 3. Return all four values in the correct order.
+	return keys, contents, scores, nil
 }
 
 func connectToGraph(rgClient *rg.Graph, queryKey string, similarKeys []string, similarities []float64) error {
@@ -247,6 +271,13 @@ func connectToGraph(rgClient *rg.Graph, queryKey string, similarKeys []string, s
 	return err
 }
 
-func KeyExists(conn *redis.Conn, key string) (bool, error) {
-	return redis.Bool((*conn).Do("EXISTS", key))
+func KeyExists(rdb *rv.Client, ctx context.Context, key string) (bool, error) {
+	if rdb == nil {
+		return false, errors.New("redis client is nil")
+	}
+	count, err := rdb.Exists(ctx, key).Result()
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
