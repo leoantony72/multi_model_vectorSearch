@@ -10,13 +10,13 @@ def storeVec(key: str, vector: list, data: str, r: redis.Redis, mtype: str):
     vecBytes = VectoBytes(vector)
     i = r.hset(key, mapping={
         "embedding": vecBytes,
-        "data": data,     # for text: actual text, for file: filename
-        "type": mtype     # "text", "image", or "audio"
+        "data": data,
+        "type": mtype
     })
     if i == 3:
-        print(f"✅ Stored {mtype} vector for key: {key}")
+        print(f"Stored {mtype} vector for key: {key}")
     else:
-        print(f"⚠️ Stored {i} fields for key: {key} (expected 3)")
+        print(f"Stored {i} fields for key: {key} (expected 3)")
 
 def VectoBytes(vector: list[float]) -> bytes:
     return np.array(vector, dtype=np.float32).tobytes()
