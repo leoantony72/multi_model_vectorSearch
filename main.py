@@ -61,6 +61,7 @@ async def submit_task(
         return {"error": "Unsupported type. Use 'text', 'image', or 'audio'."}
 
     v = vec.toVect({"type": mtype, "data": content})
+    print("Length of vector:", len(v))
     if v is None:
         return {"error": "Failed to create vector."}
 
