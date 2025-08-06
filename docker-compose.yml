@@ -1,0 +1,14 @@
+version: '3.7'
+
+services:
+  # This service runs Redis with all modules, including Graph and Search
+  redis-stack:
+    image: redis/redis-stack-server:latest
+    ports:
+      - "6379:6379"
+
+  # This service runs the RedisInsight GUI
+  redisinsight:
+    image: redis/redisinsight:latest
+    ports:
+      - "8001:8001"
