@@ -15,7 +15,6 @@ It supports both **text** and **image** search using locally computed **CLIP emb
 - **Endpoints** for:
   - `submit` (ingest)
   - `search` (retrieve)
-- **Go API client** + **lightweight Python server** for embeddings
 
 ---
 
