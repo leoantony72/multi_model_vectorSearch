@@ -81,7 +81,7 @@ async def submit_task(
         db.storeVec(key, v, content if mtype == "text" else filename, r, mtype)
 
     # Search neighbors with improved logic
-    result = search_knn(r, v, 5, query_id=key, query_type=mtype)
+    result = search_knn(r, v, 10, query_id=key, query_type=mtype)
     update_graph_connections(semantic_graph, key, result)
 
     return {"message": f"Stored {mtype}", "key": key, "neighbors": result}
@@ -94,7 +94,7 @@ async def search_endpoint_with_graph(
     file: UploadFile = File(None, alias="file")
 ):
     print(f"Graph-augmented search: type={mtype}")
-    top_k = 12
+    top_k = 20
     if mtype == "text":
         if not query:
             return {"error": "Text query required for type='text'"}
