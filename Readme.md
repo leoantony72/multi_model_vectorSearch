@@ -43,3 +43,9 @@ python app.py
 ```bash
 fastapi dev main.py
 ```
+
+
+### Running Addr
+```bash
+localhost:8000
+```
