@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Modern Search & Submit</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <!-- vis.js for graph visualization -->
+    <script
+      type="text/javascript"
+      src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"
+    ></script>
+    <style>
+      body {
+        font-family: "Inter", sans-serif;
+      }
+      .pattern-bg {
+        background-color: #f7fafc;
+        opacity: 1;
+        background-image: linear-gradient(135deg, #edf2f7 25%, transparent 25%),
+          linear-gradient(225deg, #edf2f7 25%, transparent 25%),
+          linear-gradient(45deg, #edf2f7 25%, transparent 25%),
+          linear-gradient(315deg, #edf2f7 25%, #f7fafc 25%);
+        background-position: 10px 0, 10px 0, 0 0, 0 0;
+        background-size: 20px 20px;
+        background-repeat: repeat;
+      }
+      .toggle-checkbox:checked {
+        right: 0;
+        border-color: #4f46e5;
+      }
+      .toggle-checkbox:checked + .toggle-label {
+        background-color: #4f46e5;
+      }
+      .hidden-file-input {
+        width: 0.1px;
+        height: 0.1px;
+        opacity: 0;
+        overflow: hidden;
+        position: absolute;
+        z-index: -1;
+      }
+      .fade-in {
+        animation: fadeIn 0.5s ease-in-out;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .loader {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #4f46e5;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* Graph Modal Styling */
+      #graph-modal {
+        background-color: #000;
+      }
+      #graph-container {
+        height: 100%;
+        width: 100%;
+      }
+
+      /* Custom Tooltip for Graph */
+      #graph-tooltip {
+        position: absolute;
+        visibility: hidden;
+        padding: 8px;
+        font-family: "Inter", sans-serif;
+        font-size: 14px;
+        color: #fff;
+        background-color: #262626;
+        border-radius: 6px;
+        border: 1px solid #404040;
+        z-index: 1000;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        max-width: 300px;
+        white-space: normal;
+        pointer-events: none; /* Important */
+      }
+      #graph-tooltip img {
+        border-radius: 4px;
+        max-width: 150px;
+      }
+    </style>
+  </head>
+  <body class="pattern-bg flex flex-col items-center pt-8 pb-12 min-h-screen">
+    <!-- Graph Button -->
+    <button
+      type="button"
+      id="graph-button"
+      class="fixed top-6 right-6 z-30 p-2 rounded-full border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+    >
+      <svg
+        class="w-5 h-5"
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke-width="1.5"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z"
+        />
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z"
+        />
+      </svg>
+    </button>
+
+    <!-- Main Search/Submit Container -->
+    <div
+      class="w-full max-w-xl mx-auto bg-white p-4 rounded-2xl shadow-2xl border border-gray-200"
+    >
+      <!-- Header: Main Toggle and Dropdown -->
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center space-x-3">
+          <span
+            id="toggle-label-text"
+            class="text-lg font-semibold text-gray-700"
+            >Search</span
+          >
+          <div
+            class="relative inline-block w-12 mr-2 align-middle select-none transition duration-200 ease-in"
+          >
+            <input
+              type="checkbox"
+              name="mainToggle"
+              id="mainToggle"
+              class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
+            />
+            <label
+              for="mainToggle"
+              class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"
+            ></label>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <!-- Dropdown Menu -->
+          <div class="relative inline-block text-left">
+            <div>
+              <button
+                type="button"
+                id="dropdown-button"
+                class="inline-flex justify-center w-full rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-100 focus:ring-indigo-500"
+                aria-haspopup="true"
+                aria-expanded="true"
+              >
+                Options
+                <svg
+                  class="-mr-1 ml-2 h-5 w-5"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    fill-rule="evenodd"
+                    d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div
+              id="dropdown-menu"
+              class="origin-top-right absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none hidden z-10"
+              role="menu"
+              aria-orientation="vertical"
+              aria-labelledby="options-menu"
+            >
+              <div class="py-1" role="none">
+                <a
+                  href="/graph"
+                  target="_blank"
+                  class="text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100"
+                  role="menuitem"
+                  >View Raw Graph</a
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Search Section -->
+      <div id="search-section" class="fade-in">
+        <!-- Search Type Toggle (Text/Image) -->
+        <div class="flex justify-center mb-3">
+          <div class="flex p-1 bg-gray-200 rounded-lg">
+            <button
+              id="search-text-toggle-btn"
+              class="px-4 py-1 text-sm font-semibold text-white bg-indigo-600 rounded-md shadow-sm focus:outline-none"
+            >
+              Text
+            </button>
+            <button
+              id="search-image-toggle-btn"
+              class="px-4 py-1 text-sm font-semibold text-gray-600 rounded-md focus:outline-none"
+            >
+              Image
+            </button>
+          </div>
+        </div>
+        <!-- Search Text Form -->
+        <div id="search-text-form">
+          <div class="relative">
+            <input
+              type="text"
+              id="search-text-input"
+              placeholder="Search for anything..."
+              class="w-full pl-4 pr-12 py-2.5 text-base text-gray-700 bg-gray-100 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+            />
+            <button
+              id="search-text-button"
+              class="absolute inset-y-0 right-0 flex items-center justify-center w-12 h-full text-gray-500 hover:text-indigo-600"
+            >
+              <svg
+                class="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                ></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <!-- Search Image Form -->
+        <div id="search-image-form" class="hidden">
+          <input
+            type="file"
+            name="imageSearchUpload"
+            id="imageSearchUpload"
+            class="hidden-file-input"
+            accept="image/*"
+          />
+          <label
+            for="imageSearchUpload"
+            class="flex flex-col items-center justify-center w-full h-28 px-4 transition bg-white border-2 border-gray-300 border-dashed rounded-md appearance-none cursor-pointer hover:border-indigo-400 focus:outline-none"
+          >
+            <span
+              id="image-search-preview-container"
+              class="flex items-center space-x-2"
+            >
+              <svg
+                class="w-8 h-8 text-gray-400"
+                fill="currentColor"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+              >
+                <path
+                  d="M16.88 9.1A4 4 0 0 1 16 17H5a5 5 0 0 1-1-9.9V7a3 3 0 0 1 4.52-2.59A4.98 4.98 0 0 1 17 8c0 .38-.04.74-.12 1.1zM11 11h3l-4-4-4 4h3v3h2v-3z"
+                />
+              </svg>
+              <span
+                id="image-search-upload-text"
+                class="font-medium text-gray-600"
+                >Click to upload an image to search</span
+              >
+            </span>
+          </label>
+          <button
+            id="search-image-button"
+            class="w-full mt-2 px-4 py-2.5 text-base font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition"
+          >
+            Search by Image
+          </button>
+        </div>
+      </div>
+
+      <!-- Submit Section -->
+      <div id="submit-section" class="hidden fade-in">
+        <!-- Submit Type Toggle (Text/Image) -->
+        <div class="flex justify-center mb-3">
+          <div class="flex p-1 bg-gray-200 rounded-lg">
+            <button
+              id="submit-text-toggle-btn"
+              class="px-4 py-1 text-sm font-semibold text-white bg-indigo-600 rounded-md shadow-sm focus:outline-none"
+            >
+              Text
+            </button>
+            <button
+              id="submit-image-toggle-btn"
+              class="px-4 py-1 text-sm font-semibold text-gray-600 rounded-md focus:outline-none"
+            >
+              Image
+            </button>
+          </div>
+        </div>
+        <!-- Submit Text Form -->
+        <div id="submit-text-form">
+          <textarea
+            id="submit-text-input"
+            placeholder="Enter your text here..."
+            rows="3"
+            class="w-full p-3 text-base text-gray-700 bg-gray-100 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+          ></textarea>
+          <button
+            id="submit-text-button"
+            class="w-full mt-2 px-4 py-2.5 text-base font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition"
+          >
+            Submit Text
+          </button>
+        </div>
+        <!-- Submit Image Form -->
+        <div id="submit-image-form" class="hidden">
+          <input
+            type="file"
+            name="imageSubmitUpload"
+            id="imageSubmitUpload"
+            class="hidden-file-input"
+            accept="image/*"
+          />
+          <label
+            for="imageSubmitUpload"
+            class="flex flex-col items-center justify-center w-full h-28 px-4 transition bg-white border-2 border-gray-300 border-dashed rounded-md appearance-none cursor-pointer hover:border-indigo-400 focus:outline-none"
+          >
+            <span
+              id="image-submit-preview-container"
+              class="flex items-center space-x-2"
+            >
+              <svg
+                class="w-8 h-8 text-gray-400"
+                fill="currentColor"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+              >
+                <path
+                  d="M16.88 9.1A4 4 0 0 1 16 17H5a5 5 0 0 1-1-9.9V7a3 3 0 0 1 4.52-2.59A4.98 4.98 0 0 1 17 8c0 .38-.04.74-.12 1.1zM11 11h3l-4-4-4 4h3v3h2v-3z"
+                />
+              </svg>
+              <span
+                id="image-submit-upload-text"
+                class="font-medium text-gray-600"
+                >Click to upload an image</span
+              >
+            </span>
+          </label>
+          <button
+            id="submit-image-button"
+            class="w-full mt-2 px-4 py-2.5 text-base font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition"
+          >
+            Submit Image
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Search Results Section -->
+    <div id="search-results-section" class="w-full max-w-6xl mx-auto mt-8 px-4">
+      <h2
+        id="results-title"
+        class="text-2xl font-bold text-gray-800 text-center mb-6"
+      >
+        Search Results
+      </h2>
+      <div
+        id="results-grid"
+        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+      ></div>
+    </div>
+
+    <!-- Image Popup Modal -->
+    <div
+      id="image-modal"
+      class="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center p-4 hidden z-50 fade-in"
+    >
+      <span
+        id="close-modal"
+        class="absolute top-4 right-6 text-white text-5xl font-bold cursor-pointer hover:text-gray-300 transition-colors"
+        >&times;</span
+      >
+      <img
+        id="modal-image"
+        src=""
+        alt="Popup Image"
+        class="max-w-[90vw] max-h-[90vh] rounded-lg shadow-2xl"
+      />
+    </div>
+
+    <!-- Graph Modal -->
+    <div id="graph-modal" class="fixed inset-0 hidden z-50 fade-in">
+      <div class="relative w-full h-full">
+        <span
+          id="close-graph-modal"
+          class="absolute top-4 right-6 p-2 text-white text-5xl font-bold cursor-pointer hover:text-gray-300 transition-colors z-20"
+          >&times;</span
+        >
+        <div id="graph-container" class="absolute inset-0 z-10"></div>
+      </div>
+    </div>
+
+    <!-- Custom Graph Tooltip -->
+    <div id="graph-tooltip"></div>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        // --- DOM Element References ---
+        const mainToggle = document.getElementById("mainToggle");
+        const toggleLabelText = document.getElementById("toggle-label-text");
+        const dropdownButton = document.getElementById("dropdown-button");
+        const dropdownMenu = document.getElementById("dropdown-menu");
+
+        // Search elements
+        const searchSection = document.getElementById("search-section");
+        const searchTextToggleBtn = document.getElementById(
+          "search-text-toggle-btn"
+        );
+        const searchImageToggleBtn = document.getElementById(
+          "search-image-toggle-btn"
+        );
+        const searchTextForm = document.getElementById("search-text-form"); // Fixed Reference
+        const searchImageForm = document.getElementById("search-image-form"); // Fixed Reference
+        const searchTextInput = document.getElementById("search-text-input");
+        const searchTextButton = document.getElementById("search-text-button");
+        const imageSearchUpload = document.getElementById("imageSearchUpload");
+        const searchImageButton = document.getElementById(
+          "search-image-button"
+        );
+        const imageSearchPreviewContainer = document.getElementById(
+          "image-search-preview-container"
+        );
+        const imageSearchUploadText = document.getElementById(
+          "image-search-upload-text"
+        );
+
+        // Submit elements
+        const submitSection = document.getElementById("submit-section");
+        const submitTextToggleBtn = document.getElementById(
+          "submit-text-toggle-btn"
+        );
+        const submitImageToggleBtn = document.getElementById(
+          "submit-image-toggle-btn"
+        );
+        const submitTextForm = document.getElementById("submit-text-form"); // Fixed Reference
+        const submitImageForm = document.getElementById("submit-image-form"); // Fixed Reference
+        const submitTextInput = document.getElementById("submit-text-input");
+        const submitTextButton = document.getElementById("submit-text-button");
+        const imageSubmitUpload = document.getElementById("imageSubmitUpload");
+        const submitImageButton = document.getElementById(
+          "submit-image-button"
+        );
+        const imageSubmitPreviewContainer = document.getElementById(
+          "image-submit-preview-container"
+        );
+        const imageSubmitUploadText = document.getElementById(
+          "image-submit-upload-text"
+        );
+
+        // Results & Modals
+        const searchResultsSection = document.getElementById(
+          "search-results-section"
+        );
+        const resultsTitle = document.getElementById("results-title");
+        const resultsGrid = document.getElementById("results-grid");
+        const imageModal = document.getElementById("image-modal");
+        const modalImage = document.getElementById("modal-image");
+        const closeModalBtn = document.getElementById("close-modal");
+        const graphButton = document.getElementById("graph-button");
+        const graphModal = document.getElementById("graph-modal");
+        const closeGraphModalBtn = document.getElementById("close-graph-modal");
+        const graphContainer = document.getElementById("graph-container");
+        const graphTooltip = document.getElementById("graph-tooltip");
+
+        let currentSearchType = "text";
+        let currentSubmitType = "text";
+        let network = null; // To hold the vis.js network instance
+
+        // --- API Handlers ---
+        const handleApiCall = async (endpoint, formData, title) => {
+          resultsTitle.textContent = "Loading...";
+          resultsGrid.innerHTML =
+            '<div class="loader col-span-full mx-auto"></div>';
+
+          try {
+            const response = await fetch(endpoint, {
+              method: "POST",
+              body: formData,
+            });
+            if (!response.ok)
+              throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+
+            resultsTitle.textContent = title;
+            renderResults(data.results || data.neighbors || []);
+
+            if (endpoint === "/submit") {
+              mainToggle.checked = false;
+              mainToggle.dispatchEvent(new Event("change"));
+            }
+          } catch (error) {
+            console.error("API call failed:", error);
+            resultsTitle.textContent = "Error";
+            resultsGrid.innerHTML = `<p class="text-red-500 col-span-full text-center">${error.message}</p>`;
+          }
+        };
+
+        const handleSubmit = () => {
+          const formData = new FormData();
+          if (currentSubmitType === "text") {
+            formData.append("type", "text");
+            formData.append("data", submitTextInput.value);
+          } else {
+            if (imageSubmitUpload.files.length === 0)
+              return alert("Please select an image file to submit.");
+            formData.append("type", "image");
+            formData.append("file", imageSubmitUpload.files[0]);
+          }
+          handleApiCall("/submit", formData, "Submission Neighbors");
+        };
+
+        const handleSearch = () => {
+          const formData = new FormData();
+          if (currentSearchType === "text") {
+            formData.append("type", "text");
+            formData.append("query", searchTextInput.value);
+          } else {
+            if (imageSearchUpload.files.length === 0)
+              return alert("Please select an image file to search with.");
+            formData.append("type", "image");
+            formData.append("file", imageSearchUpload.files[0]);
+          }
+          handleApiCall("/search", formData, "Search Results");
+        };
+
+        // --- Event Listeners ---
+        searchTextButton.addEventListener("click", handleSearch);
+        searchImageButton.addEventListener("click", handleSearch);
+        submitTextButton.addEventListener("click", handleSubmit);
+        submitImageButton.addEventListener("click", handleSubmit);
+        graphButton.addEventListener("click", showGraph);
+
+        mainToggle.addEventListener("change", () => {
+          const isSubmit = mainToggle.checked;
+          toggleLabelText.textContent = isSubmit ? "Submit" : "Search";
+          searchSection.classList.toggle("hidden", isSubmit);
+          submitSection.classList.toggle("hidden", !isSubmit);
+          searchResultsSection.classList.toggle("hidden", isSubmit);
+          searchSection.classList.toggle("fade-in", !isSubmit);
+          submitSection.classList.toggle("fade-in", isSubmit);
+        });
+
+        dropdownButton.addEventListener("click", () =>
+          dropdownMenu.classList.toggle("hidden")
+        );
+        window.addEventListener("click", (e) => {
+          if (
+            !dropdownButton.contains(e.target) &&
+            !dropdownMenu.contains(e.target)
+          ) {
+            dropdownMenu.classList.add("hidden");
+          }
+        });
+
+        searchTextToggleBtn.addEventListener("click", () =>
+          showSearchForm("text")
+        );
+        searchImageToggleBtn.addEventListener("click", () =>
+          showSearchForm("image")
+        );
+        submitTextToggleBtn.addEventListener("click", () =>
+          showSubmitForm("text")
+        );
+        submitImageToggleBtn.addEventListener("click", () =>
+          showSubmitForm("image")
+        );
+
+        setupImagePreview(
+          imageSearchUpload,
+          imageSearchPreviewContainer,
+          imageSearchUploadText
+        );
+        setupImagePreview(
+          imageSubmitUpload,
+          imageSubmitPreviewContainer,
+          imageSubmitUploadText
+        );
+
+        // --- Modal Logic ---
+        resultsGrid.addEventListener("click", (e) => {
+          const trigger = e.target.closest(".image-popup-trigger");
+          if (trigger) {
+            const imageElement = trigger.querySelector("img");
+            if (imageElement) {
+              modalImage.src = imageElement.src;
+              imageModal.classList.remove("hidden");
+            }
+          }
+        });
+
+        const closeModal = () => imageModal.classList.add("hidden");
+        closeModalBtn.addEventListener("click", closeModal);
+        imageModal.addEventListener("click", (e) => {
+          if (e.target === imageModal) closeModal();
+        });
+
+        const closeGraphModal = () => {
+          graphModal.classList.add("hidden");
+        };
+        closeGraphModalBtn.addEventListener("click", closeGraphModal);
+
+        // --- Graph Logic ---
+        async function showGraph() {
+          graphModal.classList.remove("hidden");
+          if (network) {
+            network.destroy();
+            network = null;
+          }
+
+          graphContainer.innerHTML = '<div class="loader mx-auto mt-40"></div>';
+
+          try {
+            const response = await fetch("/graph-data");
+            const graphData = await response.json();
+            renderGraph(graphData);
+          } catch (error) {
+            console.error("Failed to fetch or render graph:", error);
+            graphContainer.innerHTML = `<p class="text-red-400 text-center mt-40">${error.message}</p>`;
+          }
+        }
+
+        function trimText(text, maxLength = 15) {
+          if (!text || typeof text !== "string") return "";
+          if (text.length <= maxLength) return text;
+          return text.slice(0, maxLength) + "...";
+        }
+
+        function renderGraph(data) {
+          const nodeColors = {
+            text: "#a7f3d0",
+            image: "#bfdbfe",
+            audio: "#fde68a",
+            unknown: "#e5e7eb",
+          };
+          const borderColors = {
+            text: "#059669",
+            image: "#3b82f6",
+            audio: "#f59e0b",
+            unknown: "#6b7280",
+          };
+
+          const nodes = new vis.DataSet(
+            data.nodes.map((n) => {
+              const isImage = n.type === "image";
+              const label = isImage ? undefined : `"${trimText(n.data)}"`;
+
+              return {
+                id: n.id,
+                type: n.type,
+                data: n.data,
+                label: label,
+                shape: "dot",
+                color: {
+                  background: nodeColors[n.type] || nodeColors.unknown,
+                  border: borderColors[n.type] || borderColors.unknown,
+                  highlight: {
+                    background: "white",
+                    border: borderColors[n.type] || borderColors.unknown,
+                  },
+                },
+                font: {
+                  color: "white",
+                  size: 14,
+                  strokeWidth: 2,
+                  strokeColor: "#1f2937",
+                },
+                borderWidth: 2,
+                size: 25,
+              };
+            })
+          );
+
+          const edges = new vis.DataSet(
+            data.edges.map((e) => ({
+              from: e.from,
+              to: e.to,
+              width: 1 + e.score * 4,
+              color: {
+                color: "rgba(200, 200, 200, 0.4)",
+                highlight: "#6366f1",
+              },
+            }))
+          );
+
+          const options = {
+            nodes: { shape: "dot", size: 16 },
+            edges: { smooth: { type: "continuous" } },
+            physics: {
+              forceAtlas2Based: {
+                gravitationalConstant: -40,
+                centralGravity: 0.005,
+                springLength: 230,
+                springConstant: 0.18,
+              },
+              maxVelocity: 146,
+              solver: "forceAtlas2Based",
+              timestep: 0.35,
+              stabilization: { iterations: 150 },
+            },
+            interaction: { hover: true, tooltipDelay: 0 },
+          };
+
+          network = new vis.Network(graphContainer, { nodes, edges }, options);
+
+          // Custom Tooltip Handling
+          network.on("hoverNode", function (params) {
+            const nodeId = params.node;
+            const node = nodes.get(nodeId);
+            const isImage = node.type === "image";
+
+            const tooltipContent = isImage
+              ? `<img src="/uploads/${node.data}" alt="Preview">`
+              : node.data;
+
+            graphTooltip.innerHTML = tooltipContent;
+            graphTooltip.style.visibility = "visible";
+
+            const pointer = params.pointer.DOM;
+            const tooltipRect = graphTooltip.getBoundingClientRect();
+
+            let top = pointer.y - tooltipRect.height - 10;
+            let left = pointer.x - tooltipRect.width / 2;
+
+            if (top < 0) top = pointer.y + 10;
+            if (left < 0) left = 5;
+            if (left + tooltipRect.width > window.innerWidth)
+              left = window.innerWidth - tooltipRect.width - 5;
+
+            graphTooltip.style.top = `${top}px`;
+            graphTooltip.style.left = `${left}px`;
+          });
+
+          network.on("blurNode", function () {
+            graphTooltip.style.visibility = "hidden";
+          });
+
+          network.on("selectNode", function (params) {
+            if (params.nodes.length > 0) {
+              const selectedNodeId = params.nodes[0];
+              const allNodes = nodes.get({ returnType: "Object" });
+              const connectedNodeIds =
+                network.getConnectedNodes(selectedNodeId);
+
+              Object.values(allNodes).forEach((node) => {
+                const isConnected =
+                  connectedNodeIds.includes(node.id) ||
+                  node.id === selectedNodeId;
+                node.color.background = isConnected
+                  ? nodeColors[node.type] || nodeColors.unknown
+                  : "#374151";
+                node.color.border = isConnected
+                  ? borderColors[node.type] || borderColors.unknown
+                  : "#4b5563";
+                node.font.color = isConnected ? "white" : "#9ca3af";
+              });
+              nodes.update(Object.values(allNodes));
+
+              const allEdges = edges.get();
+              allEdges.forEach((edge) => {
+                const isConnected =
+                  edge.from === selectedNodeId || edge.to === selectedNodeId;
+                edge.color = isConnected
+                  ? "#6366f1"
+                  : "rgba(100, 116, 139, 0.2)";
+              });
+              edges.update(allEdges);
+            }
+          });
+
+          network.on("deselectNode", function () {
+            const allNodes = nodes.get();
+            allNodes.forEach((node) => {
+              node.color = {
+                ...node.color,
+                background: nodeColors[node.type] || nodeColors.unknown,
+                border: borderColors[node.type] || borderColors.unknown,
+              };
+              node.font.color = "white";
+            });
+            nodes.update(allNodes);
+
+            const allEdges = edges.get();
+            allEdges.forEach(
+              (edge) => (edge.color = "rgba(200, 200, 200, 0.4)")
+            );
+            edges.update(allEdges);
+          });
+        }
+
+        // --- Helper Functions ---
+        const renderResults = (results) => {
+          resultsGrid.innerHTML = "";
+          if (results.length === 0) {
+            resultsGrid.innerHTML =
+              '<p class="col-span-full text-center text-gray-500">No results found.</p>';
+            return;
+          }
+          results.forEach((item) => {
+            let cardHtml = "";
+            if (item.type === "image") {
+              cardHtml = `<div class="bg-white rounded-xl shadow-lg overflow-hidden group hover:shadow-xl transition-shadow duration-300 cursor-pointer image-popup-trigger">
+                                    <img class="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300" src="/uploads/${item.data}" alt="Result Image" onerror="this.onerror=null;this.src='https://placehold.co/600x400/ccc/ffffff?text=Error';">
+                                </div>`;
+            } else if (item.type === "text") {
+              cardHtml = `<div class="bg-white p-5 rounded-xl shadow-lg flex justify-center items-center h-48 hover:shadow-xl transition-shadow duration-300">
+                                    <p class="text-gray-700 text-center font-medium">"${item.data}"</p>
+                                </div>`;
+            }
+            resultsGrid.innerHTML += cardHtml;
+          });
+        };
+
+        function showSearchForm(type) {
+          currentSearchType = type;
+          const isText = type === "text";
+          searchTextForm.classList.toggle("hidden", !isText);
+          searchImageForm.classList.toggle("hidden", isText);
+          updateToggleButtonStyles(
+            searchTextToggleBtn,
+            searchImageToggleBtn,
+            isText
+          );
+        }
+
+        function showSubmitForm(type) {
+          currentSubmitType = type;
+          const isText = type === "text";
+          submitTextForm.classList.toggle("hidden", !isText);
+          submitImageForm.classList.toggle("hidden", isText);
+          updateToggleButtonStyles(
+            submitTextToggleBtn,
+            submitImageToggleBtn,
+            isText
+          );
+        }
+
+        function updateToggleButtonStyles(textBtn, imageBtn, isTextActive) {
+          textBtn.classList.toggle("bg-indigo-600", isTextActive);
+          textBtn.classList.toggle("text-white", isTextActive);
+          imageBtn.classList.toggle("bg-indigo-600", !isTextActive);
+          imageBtn.classList.toggle("text-white", !isTextActive);
+        }
+
+        function setupImagePreview(
+          inputElement,
+          previewContainer,
+          textElement
+        ) {
+          inputElement.addEventListener("change", function () {
+            const file = this.files[0];
+            if (file) {
+              const reader = new FileReader();
+              textElement.textContent = "Image selected!";
+              reader.onload = function (e) {
+                const existingImg = previewContainer.querySelector("img");
+                if (existingImg) existingImg.remove();
+                const img = document.createElement("img");
+                img.src = e.target.result;
+                img.className = "max-h-16 max-w-full rounded-md object-contain";
+                const svgIcon = previewContainer.querySelector("svg");
+                if (svgIcon) svgIcon.style.display = "none";
+                previewContainer.appendChild(img);
+              };
+              reader.readAsDataURL(file);
+            }
+          });
+        }
+      });
+    </script>
+  </body>
+</html>

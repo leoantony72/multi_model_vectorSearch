@@ -1,8 +1,9 @@
 from fastapi import FastAPI, Form, File, UploadFile
 from typing import Annotated, List
 from redis.commands.search.query import Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from pyvis.network import Network
+from fastapi.staticfiles import StaticFiles
 import networkx as nx
 import os
 import pickle
@@ -36,9 +37,12 @@ def save_graph():
         pickle.dump(semantic_graph, f)
 
 
+app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
 @app.get("/")
 async def read_root():
-    return {"message": "Hello, Redis!"}
+    return FileResponse('index.html', media_type='text/html')
 
 
 @app.post("/submit")
@@ -84,43 +88,41 @@ async def submit_task(
 
 
 @app.post("/search")
-async def search_knn_endpoint(
+async def search_endpoint_with_graph(
     mtype: Annotated[str, Form(alias="type")],
     query: Annotated[str, Form(alias="query")] = None,
     file: UploadFile = File(None, alias="file")
 ):
-    print(f"Hybrid search query: type={mtype}, query={query}")
-    top_k = 5
-
-    # Prepare search input
+    print(f"Graph-augmented search: type={mtype}")
+    top_k = 12
     if mtype == "text":
         if not query:
             return {"error": "Text query required for type='text'"}
         query_vec = vec.toVect({"type": "text", "data": query})
-
     elif mtype in ("image", "audio"):
         if not file:
             return {"error": f"File required for type='{mtype}'"}
         file_bytes = await file.read()
-        file_path = os.path.join(UPLOAD_DIR, f"temp_{file.filename}")
+        temp_filename = f"temp_{file.filename}"
+        file_path = os.path.join(UPLOAD_DIR, temp_filename)
         with open(file_path, "wb") as f:
             f.write(file_bytes)
         query_vec = vec.toVect({"type": mtype, "data": file_path})
-        os.remove(file_path)  # cleanup temp file
-
+        os.remove(file_path)
     else:
         return {"error": "Unsupported type. Use 'text', 'image', or 'audio'."}
 
     if query_vec is None:
         return {"error": "Failed to create query vector."}
 
-    # Search
-    if mtype == "text":
-        search_results = search.hybrid_search(r, query_vec, query_text=query, k=top_k, alpha=0.7)
-    else:
-        search_results = search_knn(r, query_vec, k=top_k, query_type=mtype)
+    initial_results = search_knn(r, query_vec, k=top_k, query_type=mtype)
+    
 
-    return {"results": search_results}
+    expanded_results = search.search_with_graph_expansion(
+        initial_results, semantic_graph, r, k=top_k
+    )
+
+    return {"results": expanded_results}
 
 
 @app.get("/graph")
@@ -165,6 +167,41 @@ async def get_graph():
     html_content = html_content.replace("</head>", full_screen_css + "</head>")
     return HTMLResponse(content=html_content)
 
+@app.get("/graph-data")
+async def get_graph_data():
+    nodes_data = []
+    valid_node_ids = set()
+
+    pipe = r.pipeline(transaction=False)
+    for node_id in semantic_graph.nodes:
+        pipe.hgetall(node_id)
+    
+    redis_results = pipe.execute()
+
+    for i, node_id in enumerate(semantic_graph.nodes):
+        redis_data = redis_results[i]
+        
+        data_val = redis_data.get(b'data')
+        type_val = redis_data.get(b'type')
+
+        if data_val and type_val:
+            nodes_data.append({
+                "id": node_id,
+                "data": data_val.decode('utf-8'),
+                "type": type_val.decode('utf-8')
+            })
+            valid_node_ids.add(node_id)
+    
+    edges_data = []
+    for u, v, data in semantic_graph.edges(data=True):
+        if u in valid_node_ids and v in valid_node_ids:
+            edges_data.append({
+                "from": u,
+                "to": v,
+                "score": data.get("score", 0)
+            })
+        
+    return JSONResponse(content={"nodes": nodes_data, "edges": edges_data})
 
 def search_knn(r, query_vector, k=5, query_id=None, query_type=None):
     query_vector_bytes = vector_to_bytes(query_vector)
