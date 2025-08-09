@@ -25,7 +25,7 @@ It supports both **text** and **image** search using locally computed **CLIP emb
 3. **Search**: Fast KNN lookups in Redis  
 4. **Expand**: Related items discovered via semantic graph traversal in NetworkX  
 5. **Cache**: Query results cached in Redis  
-6. **Serve**: Go handles API layer; Python server handles embedding and indexing
+6. **Serve**: Python handles API layer, embedding and indexing
 
 ---
 
